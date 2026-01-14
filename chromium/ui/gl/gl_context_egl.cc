@@ -151,6 +151,12 @@ bool GLContextEGL::InitializeImpl(GLSurface* compatible_surface,
   EGLint context_client_major_version = attribs.client_major_es_version;
   EGLint context_client_minor_version = attribs.client_minor_es_version;
 
+  LOG(WARNING) << "GLContextEGL::InitializeImpl called, ES version: "
+               << context_client_major_version << "." << context_client_minor_version
+               << ", no_config_context: " << gl_display_->ext->b_EGL_KHR_no_config_context
+               << ", create_context: " << gl_display_->ext->b_EGL_KHR_create_context
+               << ", surfaceless: " << compatible_surface->IsSurfaceless();
+
   // Always prefer to use EGL_KHR_no_config_context so that all surfaces and
   // contexts are compatible
   if (!gl_display_->ext->b_EGL_KHR_no_config_context) {
@@ -359,13 +365,20 @@ bool GLContextEGL::InitializeImpl(GLSurface* compatible_surface,
   context_attributes.push_back(EGL_NONE);
   context_attributes.push_back(EGL_NONE);
 
+  LOG(WARNING) << "Attempting eglCreateContext with config=" << config_
+               << ", attribs count=" << context_attributes.size()
+               << ", robustness=" << gl_display_->ext->b_EGL_EXT_create_context_robustness;
+
   context_ =
       eglCreateContext(gl_display_->GetDisplay(), config_,
                        share_group() ? share_group()->GetHandle() : nullptr,
                        context_attributes.data());
   if (context_) {
+    LOG(WARNING) << "Primary eglCreateContext succeeded";
     return true;
   }
+
+  LOG(WARNING) << "Primary eglCreateContext FAILED, error=" << eglGetError();
 
   // Context creation failed. Try falling back to a lower ES version.
   // This is especially important for embedded drivers like etnaviv that
@@ -410,27 +423,32 @@ bool GLContextEGL::InitializeImpl(GLSurface* compatible_surface,
   // attributes. This supports embedded drivers like etnaviv that may not
   // handle complex attribute lists or robustness extensions properly.
   if (context_client_major_version >= 2) {
-    DVLOG(1) << "Trying minimal ES 2.0 context as final fallback";
+    LOG(WARNING) << "FALLBACK: Trying minimal ES 2.0 context, major=" << context_client_major_version;
 
     // First try: use the surface's config
     EGLConfig fallback_config = compatible_surface->GetConfig();
+    LOG(WARNING) << "FALLBACK: surface->GetConfig() returned " << fallback_config;
+
     std::vector<EGLint> minimal_attribs = {EGL_CONTEXT_CLIENT_VERSION, 2,
                                            EGL_NONE};
     if (fallback_config) {
+      LOG(WARNING) << "FALLBACK: Trying with surface config";
       context_ =
           eglCreateContext(gl_display_->GetDisplay(), fallback_config,
                            share_group() ? share_group()->GetHandle() : nullptr,
                            minimal_attribs.data());
       if (context_) {
+        LOG(WARNING) << "FALLBACK: Surface config SUCCEEDED";
         config_ = fallback_config;
         return true;
       }
       error = eglGetError();
-      DVLOG(1) << "Surface config failed, trying minimal config query";
+      LOG(WARNING) << "FALLBACK: Surface config FAILED, error=" << error;
     }
 
     // Second try: query configs with truly minimal requirements (like eglinfo)
     // Some embedded drivers don't match Chromium's specific requirements
+    LOG(WARNING) << "FALLBACK: Trying minimal config query";
     EGLint minimal_config_attribs[] = {
         EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
         EGL_NONE};
@@ -438,17 +456,23 @@ bool GLContextEGL::InitializeImpl(GLSurface* compatible_surface,
     if (eglChooseConfig(gl_display_->GetDisplay(), minimal_config_attribs,
                         &fallback_config, 1, &num_configs) &&
         num_configs > 0) {
+      LOG(WARNING) << "FALLBACK: Got " << num_configs << " configs, using " << fallback_config;
       context_ =
           eglCreateContext(gl_display_->GetDisplay(), fallback_config,
                            share_group() ? share_group()->GetHandle() : nullptr,
                            minimal_attribs.data());
       if (context_) {
         config_ = fallback_config;
-        LOG(WARNING) << "Using minimal EGL config for ES 2.0 context";
+        LOG(WARNING) << "FALLBACK: Minimal config SUCCEEDED";
         return true;
       }
       error = eglGetError();
+      LOG(WARNING) << "FALLBACK: Minimal config FAILED, error=" << error;
+    } else {
+      LOG(WARNING) << "FALLBACK: eglChooseConfig failed or returned 0 configs";
     }
+  } else {
+    LOG(WARNING) << "FALLBACK: Skipped because major=" << context_client_major_version;
   }
 
   LOG(ERROR) << "eglCreateContext failed with error "

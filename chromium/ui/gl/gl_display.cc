@@ -837,6 +837,7 @@ void GLDisplayEGL::InitializeCommon(bool for_testing) {
   }
 #endif  // BUILDFLAG(IS_ANDROID)
 
+  LOG(WARNING) << "InitializeCommon: egl_surfaceless_context_supported_=" << egl_surfaceless_context_supported_;
   if (egl_surfaceless_context_supported_) {
     // EGL_KHR_surfaceless_context is supported but ensure
     // GL_OES_surfaceless_context is also supported. We need a current context
@@ -849,10 +850,14 @@ void GLDisplayEGL::InitializeCommon(bool for_testing) {
     GLContextAttribs test_attribs;
     test_attribs.client_major_es_version = 2;
     test_attribs.client_minor_es_version = 0;
+    LOG(WARNING) << "InitializeCommon: Creating test context for surfaceless check";
     scoped_refptr<GLContext> context = InitializeGLContext(
         new GLContextEGL(nullptr), surface.get(), test_attribs);
-    if (!context || !context->MakeCurrent(surface.get()))
+    LOG(WARNING) << "InitializeCommon: Test context created=" << (context != nullptr);
+    if (!context || !context->MakeCurrent(surface.get())) {
+      LOG(WARNING) << "InitializeCommon: Surfaceless test FAILED, disabling";
       egl_surfaceless_context_supported_ = false;
+    }
 
     // Ensure context supports GL_OES_surfaceless_context.
     if (egl_surfaceless_context_supported_) {
