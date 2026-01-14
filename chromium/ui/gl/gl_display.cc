@@ -843,8 +843,14 @@ void GLDisplayEGL::InitializeCommon(bool for_testing) {
     // to query for supported GL extensions.
     scoped_refptr<GLSurface> surface =
         new SurfacelessEGL(this, gfx::Size(1, 1));
+    // Use ES 2.0 for test context to support embedded drivers like etnaviv
+    // that only provide ES 2.0. The default GLContextAttribs requests ES 3.0
+    // which will fail on ES 2.0-only drivers.
+    GLContextAttribs test_attribs;
+    test_attribs.client_major_es_version = 2;
+    test_attribs.client_minor_es_version = 0;
     scoped_refptr<GLContext> context = InitializeGLContext(
-        new GLContextEGL(nullptr), surface.get(), GLContextAttribs());
+        new GLContextEGL(nullptr), surface.get(), test_attribs);
     if (!context || !context->MakeCurrent(surface.get()))
       egl_surfaceless_context_supported_ = false;
 

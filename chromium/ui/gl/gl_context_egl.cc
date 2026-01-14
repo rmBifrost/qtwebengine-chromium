@@ -367,12 +367,13 @@ bool GLContextEGL::InitializeImpl(GLSurface* compatible_surface,
     return true;
   }
 
-  // If EGL_KHR_no_config_context is in use and context creation failed,
-  // it might indicate that an unsupported ES version was requested. Try
-  // falling back to a lower version.
+  // Context creation failed. Try falling back to a lower ES version.
+  // This is especially important for embedded drivers like etnaviv that
+  // only support ES 2.0. Originally this fallback only triggered on
+  // EGL_BAD_MATCH or EGL_BAD_ATTRIBUTE errors, but drivers may return
+  // various error codes when ES 3.0 is not supported.
   GLint error = eglGetError();
-  if (gl_display_->ext->b_EGL_KHR_no_config_context &&
-      (error == EGL_BAD_MATCH || error == EGL_BAD_ATTRIBUTE)) {
+  if (context_client_major_version >= 3) {
     // Set up the list of versions to try: 3.1 -> 3.0 -> 2.0
     std::vector<std::pair<EGLint, EGLint>> candidate_versions;
     if (context_client_major_version == 3 &&
@@ -403,6 +404,23 @@ bool GLContextEGL::InitializeImpl(GLSurface* compatible_surface,
         error = eglGetError();
       }
     }
+  }
+
+  // Final fallback: try creating a minimal ES 2.0 context with no extra
+  // attributes. This supports embedded drivers like etnaviv that may not
+  // handle complex attribute lists or robustness extensions properly.
+  if (context_client_major_version >= 2) {
+    DVLOG(1) << "Trying minimal ES 2.0 context as final fallback";
+    std::vector<EGLint> minimal_attribs = {EGL_CONTEXT_CLIENT_VERSION, 2,
+                                           EGL_NONE};
+    context_ =
+        eglCreateContext(gl_display_->GetDisplay(), config_,
+                         share_group() ? share_group()->GetHandle() : nullptr,
+                         minimal_attribs.data());
+    if (context_) {
+      return true;
+    }
+    error = eglGetError();
   }
 
   LOG(ERROR) << "eglCreateContext failed with error "
