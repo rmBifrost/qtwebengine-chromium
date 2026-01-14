@@ -409,15 +409,20 @@ bool GLContextEGL::InitializeImpl(GLSurface* compatible_surface,
   // Final fallback: try creating a minimal ES 2.0 context with no extra
   // attributes. This supports embedded drivers like etnaviv that may not
   // handle complex attribute lists or robustness extensions properly.
+  // IMPORTANT: Use the surface's config, not config_ which may be nullptr
+  // when EGL_KHR_no_config_context is supported. Some drivers (like etnaviv)
+  // advertise no_config_context but don't actually work with EGL_NO_CONFIG.
   if (context_client_major_version >= 2) {
     DVLOG(1) << "Trying minimal ES 2.0 context as final fallback";
+    EGLConfig fallback_config = compatible_surface->GetConfig();
     std::vector<EGLint> minimal_attribs = {EGL_CONTEXT_CLIENT_VERSION, 2,
                                            EGL_NONE};
     context_ =
-        eglCreateContext(gl_display_->GetDisplay(), config_,
+        eglCreateContext(gl_display_->GetDisplay(), fallback_config,
                          share_group() ? share_group()->GetHandle() : nullptr,
                          minimal_attribs.data());
     if (context_) {
+      config_ = fallback_config;  // Update config_ for consistency
       return true;
     }
     error = eglGetError();
